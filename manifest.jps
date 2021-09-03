@@ -1,0 +1,191 @@
+jpsType: install
+jpsVersion: '1.7.3'
+name: [cu]Health Drupal Environment
+
+baseUrl: https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/
+
+globals:
+  DB_USER: ${fn.random}
+  DB_PASS: ${fn.password(10)}
+  NGINX_PASS: ${fn.password(10)}
+  STATS_PASS: ${fn.password(10)}
+  MONIT_PASS: ${fn.password(10)}
+settings:
+  fields:
+  -  caption: Backup Email
+     type: text
+     required: true
+     name: BACKUP_EMAIL
+  -  caption: Amplify API KEY
+     type: text
+     required: yes
+     name: AMPLIFY_KEY
+  - caption: "PHP Version"
+    type: list
+    values:
+        1.18.0-php-7.4.16 : 7.4
+    required: true
+    name: PHP_VERSION
+    value: 1.18.0-php-7.4.16
+
+skipNodeEmails: true
+
+nodes:
+- nodeType: nginxphp-dockerized
+  tag: ${settings.PHP_VERSION}
+  count: 1
+  cloudlets: 16
+  extip: 1
+  links:
+    - sqldb:DB
+  nodeGroup: cp
+  volumes:
+    - /var/www/webroot/ROOT
+    - /var/www/webroot/persistent
+  displayName: AppServer
+  env:
+    PHPFPM_MAX_CHILDREN: 1000
+    REDIS_ENABLED: 1
+    REDIS_VERSION: 6.0.6
+    BACKUP_FAIL_FROM: ${settings.BACKUP_EMAIL}
+    BACKUP_FAIL_TO: ${settings.BACKUP_EMAIL}
+    JELASTIC_PORTS:
+        - 80
+        - 443
+        - 22
+
+- nodeType: mysql5
+  count: 1
+  cloudlets: 8
+  displayName: Database
+  diskLimit: 200G
+  nodeGroup: sqldb
+
+onInstall:
+  - setNodeDisplayName [cp]: AppServer
+  - setNodeDisplayName [sqldb]: DataBase
+  - createDb
+  - SetupAccess
+  - InstallCPYumPackages
+  - setupCPConfigs
+  - setupCPPackages
+
+actions:
+  SetupAccess:
+  - log: Set Access
+  - cmd [cp]: |-
+      echo ${globals.NGINX_PASS}| passwd --stdin nginx &>> /var/log/run.log
+      echo ${globals.NGINX_PASS}| passwd --stdin root &>> /var/log/run.log
+    user: root
+    sayYes: true
+  InstallCPYumPackages:
+  - log: Setup Yum packages
+  - cmd [cp]: |-
+      yum-config-manager --save --setopt=fuzzyrpm.skip_if_unavailable=true
+      yum-config-manager --save --setopt=fuzzyrpm-noarch.skip_if_unavailable=true
+      curl -sL https://rpm.nodesource.com/setup_12.x | sudo bash - &>> /var/log/run.log
+      yum install nodejs
+      yum --disablerepo=fuzzyrpm install epel-release &>> /var/log/run.log
+      yum --disablerepo=fuzzyrpm install fail2ban joe pv monit libsodium httpd-tools goaccess &>> /var/log/run.log
+    user: root
+    sayYes: true
+  setupCPConfigs:
+  - log: Setup Config files
+  - cmd [cp]: |-
+      mkdir -p /etc/monit.d/
+      curl ${baseUrl}/configs/monit/nginxmonitor > /etc/monit.d/nginx
+      curl ${baseUrl}/configs/monit/phpfpmmonitor > /etc/monit.d/phpfpm
+      curl ${baseUrl}/configs/php/extensions.ini > /etc/php.d/extensions.ini
+      curl ${baseUrl}/configs/nginx/nginx.conf > /etc/nginx/nginx.conf
+      curl ${baseUrl}/configs/nginx/nossl.conf > /etc/nginx/conf.d/nossl.conf
+      curl ${baseUrl}/configs/nginx/ssl.conf.disabled > /etc/nginx/conf.d/ssl.conf.disabled
+      curl ${baseUrl}/configs/php/php-fpm.conf > /etc/php-fpm.conf
+      mkdir -p /etc/nginx/conf.d/SITES_ENABLED
+      curl ${baseUrl}/configs/nginx/site-default-mg2.conf > /etc/nginx/conf.d/SITES_ENABLED/site-default.conf
+      mkdir -p /etc/nginx/conf.d/CORS
+      curl ${baseUrl}/configs/nginx/CORS-CDN/cors.conf > /etc/nginx/conf.d/CORS/cors.conf
+      curl ${baseUrl}/configs/nginx/stub_status.conf > /etc/nginx/conf.d/stub_status.conf
+      curl ${baseUrl}/configs/restart.conf > /etc/systemd/system/redis.service.d/restart.conf
+      systemctl daemon-reload &>> /var/log/run.log
+      export REDIS_ENABLED=TRUE
+      curl ${baseUrl}/configs/redis/redis.conf > /etc/redis.conf
+      systemctl start redis &>> /var/log/run.log
+      systemctl enable redis &>> /var/log/run.log
+      systemctl restart nginx &>> /var/log/run.log
+      sudo jem service restart  &>> /var/log/run.log
+      echo ${nodes.sqldb.master.intIP} DB_MASTER >> /etc/hosts
+      echo ${nodes.nosqldb.master.intIP} RD_MASTER >> /etc/hosts
+      echo ${nodes.es.first.intIP} ES_MASTER >> /etc/hosts
+      echo "export BACKUP_FAIL_FROM=${settings.BACKUP_EMAIL}" >> /etc/environment
+      echo "export BACKUP_FAIL_TO=${settings.BACKUP_EMAIL}" >> /etc/environment
+    user: root
+    sayYes: true
+  setupCPPackages:
+  - log: Setup Packages
+  - cmd [cp]: |-
+      systemctl enable monit &>> /var/log/run.log
+      wget http://www.rfxn.com/downloads/maldetect-current.tar.gz
+      tar -xzf maldetect-current.tar.gz
+      cd maldetect-1.6.4
+      /bin/bash ./install.sh
+      cd ../
+      rm -rf maldet*
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" &>> /var/log/run.log
+      unzip awscliv2.zip &>> /var/log/run.log
+      ./aws/install &>> /var/log/run.log
+      curl -L -O https://github.com/nginxinc/nginx-amplify-agent/raw/master/packages/install.sh
+      API_KEY='${settings.AMPLIFY_KEY}' sh ./install.sh
+      htpasswd -b -c /etc/nginx/.htpasswd stats ${globals.STATS_PASS}
+      chown nginx:nginx /etc/nginx/.htpasswd
+      sed -i -e "/use address localhost/d" /etc/monitrc
+      sed -i -e "/allow localhost/d" /etc/monitrc
+      sed -i -e "/allow admin:monit/allow admin:${globals.MONIT_PASS}/" /etc/monitrc
+    user: root
+    sayYes: true
+  - log: Setup Non Root Parts
+  - cmd [cp]: |-
+      echo "0 5 * * * /bin/bash /var/www/webroot/backup/backup_to_s3.sh 2>&1 >/var/www/webroot/backup/backups.log" >> /var/spool/cron/nginx
+      echo "*/5 * * * * cat /var/log/nginx/access.log | grep -v -f /var/www/webroot/go_access_exclude_list.txt | goaccess -o /var/www/webroot/ROOT/site_report.html --log-format=COMBINED - 2>&1 >/dev/null" >> /var/spool/cron/nginx
+    user: nginx
+  createDb:
+  - nodeGroup: sqldb
+    loginCredentials:
+      user: root
+      password: "${nodes.sqldb.password}"
+    newDatabaseName: drupal
+    newDatabaseUser:
+      name: drupal
+      password: "${globals.DB_PASS}"
+  - cmd [sqldb]: |-
+      sed -i 's/Require all granted/Require all denied/g' /etc/httpd/conf.d/phpMyAdmin-jel.conf
+      echo ${globals.NGINX_PASS}| passwd --stdin root &>> /var/log/run.log
+    user: root
+  - restartNodes:
+      nodeGroup: cp
+success:
+  text: |
+    ## Database: ${nodes.mariadb-dockerized.name}
+
+    * **Host**: ${nodes.mariadb-dockerized.intIP} or just use: DB_MASTER
+    * **Username**: drupal
+    * **Password**: ${globals.DB_PASS}
+    * **Username**: root
+    * **Password**: ${nodes.sqldb.password}
+    * **Database Name**: drupal
+
+    ## Redis for Cache
+
+    * **Host**: ${nodes.cp.first.intIP} or just use: localhost on AppServer
+    * **socket**: It is preferred to use the socket /tmp/redis.sock
+
+    ## AppServer Node / DB Node
+
+    * **password**: ${globals.NGINX_PASS}
+
+    ## STATS
+
+    * stats / ${globals.STATS_PASS}
+
+    ## MONIT on port 2812
+
+    * admin / ${globals.MONIT_PASS}
