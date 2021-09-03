@@ -1,25 +1,27 @@
 jpsType: install
 jpsVersion: '1.7.3'
-name: [cu]Health Drupal Environment
+name: cuHealth Drupal Environment
 
-baseUrl: https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/
+baseUrl: https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main
 
 globals:
   DB_USER: ${fn.random}
   DB_PASS: ${fn.password(10)}
   NGINX_PASS: ${fn.password(10)}
+  ADMIN_PASS: ${fn.password(10)}
   STATS_PASS: ${fn.password(10)}
   MONIT_PASS: ${fn.password(10)}
 settings:
   fields:
-  -  caption: Backup Email
-     type: text
-     required: true
-     name: BACKUP_EMAIL
-  -  caption: Amplify API KEY
-     type: text
-     required: yes
-     name: AMPLIFY_KEY
+  - caption: Backup Email
+    type: text
+    required: true
+    name: BACKUP_EMAIL
+  - caption: Amplify API KEY
+    type: text
+    required: yes
+    name: AMPLIFY_KEY
+    tooltip: "AdvanceD NGINX monitoring - https://amplify.nginx.com/"
   - caption: "PHP Version"
     type: list
     values:
@@ -27,6 +29,16 @@ settings:
     required: true
     name: PHP_VERSION
     value: 1.18.0-php-7.4.16
+  - caption: Skip Install Let's Encrypt SSL with Auto-Renewal?
+    type: checkbox
+    name: le_addon
+    value: true
+    tooltip: "Advanced integration with Let's Encrypt certificate authority that simplifies and automates the process of issuing, configuring and renewing trusted SSL certificates."
+  - caption: Install Clean Drupal 9?
+    type: checkbox
+    name: install_drupal
+    value: false
+    tooltip: "Install Blank Drupal site"
 
 skipNodeEmails: true
 
@@ -44,16 +56,11 @@ nodes:
     - /var/www/webroot/persistent
   displayName: AppServer
   env:
-    PHPFPM_MAX_CHILDREN: 1000
+    PHPFPM_MAX_CHILDREN: 500
     REDIS_ENABLED: 1
     REDIS_VERSION: 6.0.6
     BACKUP_FAIL_FROM: ${settings.BACKUP_EMAIL}
     BACKUP_FAIL_TO: ${settings.BACKUP_EMAIL}
-    JELASTIC_PORTS:
-        - 80
-        - 443
-        - 22
-
 - nodeType: mysql5
   count: 1
   cloudlets: 8
@@ -64,12 +71,39 @@ nodes:
 onInstall:
   - setNodeDisplayName [cp]: AppServer
   - setNodeDisplayName [sqldb]: DataBase
-  - createDb
+  - prepareSqlDatabase:
+    - nodeGroup: sqldb
+      loginCredentials:
+        user: root
+        password: "${nodes.sqldb.password}"
+      newDatabaseName: drupal
+      newDatabaseUser:
+        name: drupal
+        password: "${globals.DB_PASS}"
+  - secureDb
   - SetupAccess
   - InstallCPYumPackages
   - setupCPConfigs
   - setupCPPackages
-
+  - if ('${settings.le_addon:true}' == 'false'):
+      - install:
+          jps: https://github.com/jelastic-jps/lets-encrypt/blob/stage/manifest.jps
+          envName: ${env.envName}
+          nodeGroup: cp
+          skipEmail: true
+          settings:
+            customDomains: ""
+  - if ('${settings.install_drupal:false}' == 'true'):
+      - cmd [cp]:
+        - rm -rf ${SERVER_WEBROOT}/ROOT
+        - curl -fsSL "https://getcomposer.org/installer" -o ${SERVER_WEBROOT}/installer 2>&1 1>>/tmp/install_drupal.log && php installer 2>&1 1>>/tmp/install_drupal.log
+        - composer global require drush/drush:^8.3.1 2>&1 1>>/tmp/install_drupal.log
+        - composer create-project drupal/legacy-project:9.2.4 ${SERVER_WEBROOT}/ROOT
+      - cmd [cp]: cd ${SERVER_WEBROOT}/ROOT && ${SERVER_WEBROOT}/.config/composer/vendor/bin/drush -y si standard --db-url='mysql://drupal:${globals.DB_PASS}@${nodes.sqldb.address}/drupal' --site-name="Drupal" --account-name="admin" --account-pass="${globals.ADMIN_PASS}" --account-mail="${user.email}" 2>&1 1>>${SERVER_WEBROOT}/install_drupal.log
+      - cmd [cp]:
+        - echo "\$settings['trusted_host_patterns'] = array( '^${env.domain}$', '^www\.${env.domain}$', );" >> ${SERVER_WEBROOT}/ROOT/sites/default/settings.php
+        - chown nginx:nginx /var/spool/clientmqueue
+        user: root
 actions:
   SetupAccess:
   - log: Set Access
@@ -93,29 +127,27 @@ actions:
   - log: Setup Config files
   - cmd [cp]: |-
       mkdir -p /etc/monit.d/
-      curl ${baseUrl}/configs/monit/nginxmonitor > /etc/monit.d/nginx
-      curl ${baseUrl}/configs/monit/phpfpmmonitor > /etc/monit.d/phpfpm
-      curl ${baseUrl}/configs/php/extensions.ini > /etc/php.d/extensions.ini
-      curl ${baseUrl}/configs/nginx/nginx.conf > /etc/nginx/nginx.conf
-      curl ${baseUrl}/configs/nginx/nossl.conf > /etc/nginx/conf.d/nossl.conf
-      curl ${baseUrl}/configs/nginx/ssl.conf.disabled > /etc/nginx/conf.d/ssl.conf.disabled
-      curl ${baseUrl}/configs/php/php-fpm.conf > /etc/php-fpm.conf
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/monit/nginxmonitor > /etc/monit.d/nginx
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/monit/phpfpmmonitor > /etc/monit.d/phpfpm
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/php/extensions.ini > /etc/php.d/extensions.ini
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/nginx/nginx.conf > /etc/nginx/nginx.conf
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/nginx/nossl.conf > /etc/nginx/conf.d/nossl.conf
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/nginx/ssl.conf.disabled > /etc/nginx/conf.d/ssl.conf.disabled
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/php/php-fpm.conf > /etc/php-fpm.conf
       mkdir -p /etc/nginx/conf.d/SITES_ENABLED
-      curl ${baseUrl}/configs/nginx/site-default-mg2.conf > /etc/nginx/conf.d/SITES_ENABLED/site-default.conf
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/nginx/site-default.conf > /etc/nginx/conf.d/SITES_ENABLED/site-default.conf
       mkdir -p /etc/nginx/conf.d/CORS
-      curl ${baseUrl}/configs/nginx/CORS-CDN/cors.conf > /etc/nginx/conf.d/CORS/cors.conf
-      curl ${baseUrl}/configs/nginx/stub_status.conf > /etc/nginx/conf.d/stub_status.conf
-      curl ${baseUrl}/configs/restart.conf > /etc/systemd/system/redis.service.d/restart.conf
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/nginx/CORS-CDN/cors.conf > /etc/nginx/conf.d/CORS/cors.conf
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/nginx/stub_status.conf > /etc/nginx/conf.d/stub_status.conf
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/restart.conf > /etc/systemd/system/redis.service.d/restart.conf
       systemctl daemon-reload &>> /var/log/run.log
       export REDIS_ENABLED=TRUE
-      curl ${baseUrl}/configs/redis/redis.conf > /etc/redis.conf
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/redis/redis.conf > /etc/redis.conf
       systemctl start redis &>> /var/log/run.log
       systemctl enable redis &>> /var/log/run.log
       systemctl restart nginx &>> /var/log/run.log
       sudo jem service restart  &>> /var/log/run.log
       echo ${nodes.sqldb.master.intIP} DB_MASTER >> /etc/hosts
-      echo ${nodes.nosqldb.master.intIP} RD_MASTER >> /etc/hosts
-      echo ${nodes.es.first.intIP} ES_MASTER >> /etc/hosts
       echo "export BACKUP_FAIL_FROM=${settings.BACKUP_EMAIL}" >> /etc/environment
       echo "export BACKUP_FAIL_TO=${settings.BACKUP_EMAIL}" >> /etc/environment
     user: root
@@ -146,16 +178,9 @@ actions:
   - cmd [cp]: |-
       echo "0 5 * * * /bin/bash /var/www/webroot/backup/backup_to_s3.sh 2>&1 >/var/www/webroot/backup/backups.log" >> /var/spool/cron/nginx
       echo "*/5 * * * * cat /var/log/nginx/access.log | grep -v -f /var/www/webroot/go_access_exclude_list.txt | goaccess -o /var/www/webroot/ROOT/site_report.html --log-format=COMBINED - 2>&1 >/dev/null" >> /var/spool/cron/nginx
+      echo "0 3 * * * /var/www/webroot/ROOT/vendor/drush/drush/drush -r /var/www/webroot/ROOT sql:dump --result-file=/var/www/webroot/backup/db-dump-`date +%d%m%Y%H%M%S`.sql --gzip"
     user: nginx
-  createDb:
-  - nodeGroup: sqldb
-    loginCredentials:
-      user: root
-      password: "${nodes.sqldb.password}"
-    newDatabaseName: drupal
-    newDatabaseUser:
-      name: drupal
-      password: "${globals.DB_PASS}"
+  secureDb:
   - cmd [sqldb]: |-
       sed -i 's/Require all granted/Require all denied/g' /etc/httpd/conf.d/phpMyAdmin-jel.conf
       echo ${globals.NGINX_PASS}| passwd --stdin root &>> /var/log/run.log
@@ -164,9 +189,9 @@ actions:
       nodeGroup: cp
 success:
   text: |
-    ## Database: ${nodes.mariadb-dockerized.name}
+    ## Database:
 
-    * **Host**: ${nodes.mariadb-dockerized.intIP} or just use: DB_MASTER
+    * **Host**: ${nodes.sqldb.address} or just use: DB_MASTER
     * **Username**: drupal
     * **Password**: ${globals.DB_PASS}
     * **Username**: root
@@ -178,12 +203,14 @@ success:
     * **Host**: ${nodes.cp.first.intIP} or just use: localhost on AppServer
     * **socket**: It is preferred to use the socket /tmp/redis.sock
 
-    ## AppServer Node / DB Node
+    ## AppServer Node / DB Node ROOT User
 
+    * ** su root
     * **password**: ${globals.NGINX_PASS}
 
     ## STATS
 
+    * <base url>/site_report.html
     * stats / ${globals.STATS_PASS}
 
     ## MONIT on port 2812
