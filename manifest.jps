@@ -156,7 +156,6 @@ actions:
   setupCPPackages:
   - log: Setup Packages
   - cmd [cp]: |-
-      systemctl enable monit &>> /var/log/run.log
       wget http://www.rfxn.com/downloads/maldetect-current.tar.gz
       tar -xzf maldetect-current.tar.gz
       cd maldetect-1.6.4
@@ -173,6 +172,8 @@ actions:
       sed -i -e "/use address localhost/d" /etc/monitrc
       sed -i -e "/allow localhost/d" /etc/monitrc
       sed -i -e "s/allow admin:monit/allow admin:${globals.MONIT_PASS}/g" /etc/monitrc
+      systemctl enable monit &>> /var/log/run.log
+      systemctl start monit &>> /var/log/run.log
       echo 'pathmunge /var/lib/nginx/.config/composer/vendor/bin' > /etc/profile.d/darsh.sh
       chmod +x /etc/profile.d/darsh.sh
     user: root
