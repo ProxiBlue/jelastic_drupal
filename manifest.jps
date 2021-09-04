@@ -174,20 +174,20 @@ actions:
       sed -i -e "s/allow admin:monit/allow admin:${globals.MONIT_PASS}/g" /etc/monitrc
       systemctl enable monit &>> /var/log/run.log
       systemctl start monit &>> /var/log/run.log
-      echo 'pathmunge /var/lib/nginx/.config/composer/vendor/bin' > /etc/profile.d/darsh.sh
-      chmod +x /etc/profile.d/darsh.sh
     user: root
     sayYes: true
   - log: Setup Non Root Parts
   - cmd [cp]: |-
       echo "0 5 * * * /bin/bash /var/www/webroot/backup/backup_to_s3.sh 2>&1 >/var/www/webroot/backup/backups.log" >> /var/spool/cron/nginx
       echo "*/5 * * * * cat /var/log/nginx/access.log | grep -v -f /var/www/webroot/go_access_exclude_list.txt | goaccess -o /var/www/webroot/site_report/index.html --log-format=COMBINED - 2>&1 >/dev/null" >> /var/spool/cron/nginx
-      echo "0 3 * * * /var/www/webroot/ROOT/vendor/drush/drush/drush -r /var/www/webroot/ROOT sql:dump --result-file=/var/www/webroot/backup/db-dump-`date +%d%m%Y%H%M%S`.sql --gzip"
-      composer global require drush/drush:^8.3.1 2>&1 1>>/tmp/install_drupal.log
+      composer global require drush/drush:^10.6 2>&1 1>>/tmp/install_drupal.log
       touch /var/www/webroot/go_access_exclude_list.txt
       echo "site_report" >> /var/www/webroot/go_access_exclude_list.txt
       echo "nginx_status" >> /var/www/webroot/go_access_exclude_list.txt
       mkdir /var/www/webroot/site_report/
+      echo 'export PATH=$PATH:/var/lib/nginx/.config/composer/vendor/bin' >> /var/lib/nginx/.bash_profile
+      mkdir /var/www/webroot/backup/
+      curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/backup_to_s3.sh > /var/www/webroot/backup/backup_to_s3.sh
     user: nginx
   secureDb:
   - cmd [sqldb]: |-
