@@ -95,14 +95,12 @@ onInstall:
             customDomains: ""
   - if ('${settings.install_drupal:false}' == 'true'):
       - cmd [cp]:
-        - rm -rf ${SERVER_WEBROOT}/ROOT
-        - curl -fsSL "https://getcomposer.org/installer" -o ${SERVER_WEBROOT}/installer 2>&1 1>>/tmp/install_drupal.log && php installer 2>&1 1>>/tmp/install_drupal.log
+        - rm -rf ${WEBROOT}/ROOT
         - composer global require drush/drush:^8.3.1 2>&1 1>>/tmp/install_drupal.log
-        - composer create-project drupal/legacy-project:9.2.4 ${SERVER_WEBROOT}/ROOT
-      - cmd [cp]: cd ${SERVER_WEBROOT}/ROOT && ${SERVER_WEBROOT}/.config/composer/vendor/bin/drush -y si standard --db-url='mysql://drupal:${globals.DB_PASS}@${nodes.sqldb.address}/drupal' --site-name="Drupal" --account-name="admin" --account-pass="${globals.ADMIN_PASS}" --account-mail="${user.email}" 2>&1 1>>${SERVER_WEBROOT}/install_drupal.log
+        - composer create-project drupal/legacy-project:9.2.4 ${WEBROOT}/ROOT
+      - cmd [cp]: cd ${WEBROOT}/ROOT && ~/.config/composer/vendor/bin/drush -y si standard --db-url='mysql://drupal:${globals.DB_PASS}@${nodes.sqldb.address}/drupal' --site-name="Drupal" --account-name="admin" --account-pass="${globals.ADMIN_PASS}" --account-mail="${user.email}" 2>&1 1>>/tmp/install_drupal.log
       - cmd [cp]:
-        - echo "\$settings['trusted_host_patterns'] = array( '^${env.domain}$', '^www\.${env.domain}$', );" >> ${SERVER_WEBROOT}/ROOT/sites/default/settings.php
-        - chown nginx:nginx /var/spool/clientmqueue
+        - echo "\$settings['trusted_host_patterns'] = array( '^${env.domain}$', '^www\.${env.domain}$', );" >> ${WEBROOT}/ROOT/sites/default/settings.php
         user: root
 actions:
   SetupAccess:
@@ -150,6 +148,9 @@ actions:
       echo ${nodes.sqldb.master.intIP} DB_MASTER >> /etc/hosts
       echo "export BACKUP_FAIL_FROM=${settings.BACKUP_EMAIL}" >> /etc/environment
       echo "export BACKUP_FAIL_TO=${settings.BACKUP_EMAIL}" >> /etc/environment
+      chown nginx:nginx /var/spool/clientmqueue
+      sed -i -e "s/mbstring.encoding_translation = 1/mbstring.encoding_translation = 0/g" /etc/php.ini
+      echo "cgi.fix_pathinfo = 0" >> /etc/php.ini
     user: root
     sayYes: true
   setupCPPackages:
@@ -171,14 +172,18 @@ actions:
       chown nginx:nginx /etc/nginx/.htpasswd
       sed -i -e "/use address localhost/d" /etc/monitrc
       sed -i -e "/allow localhost/d" /etc/monitrc
-      sed -i -e "/allow admin:monit/allow admin:${globals.MONIT_PASS}/" /etc/monitrc
+      sed -i -e "s/allow admin:monit/allow admin:${globals.MONIT_PASS}/g" /etc/monitrc
+      echo 'pathmunge /var/lib/nginx/.config/composer/vendor/bin' > /etc/profile.d/darsh.sh
+      chmod +x /etc/profile.d/darsh.sh
     user: root
     sayYes: true
   - log: Setup Non Root Parts
   - cmd [cp]: |-
       echo "0 5 * * * /bin/bash /var/www/webroot/backup/backup_to_s3.sh 2>&1 >/var/www/webroot/backup/backups.log" >> /var/spool/cron/nginx
-      echo "*/5 * * * * cat /var/log/nginx/access.log | grep -v -f /var/www/webroot/go_access_exclude_list.txt | goaccess -o /var/www/webroot/ROOT/site_report.html --log-format=COMBINED - 2>&1 >/dev/null" >> /var/spool/cron/nginx
+      echo "*/5 * * * * cat /var/log/nginx/access.log | grep -v -f /var/www/webroot/go_access_exclude_list.txt | goaccess -o /var/www/webroot/site_report/index.html --log-format=COMBINED - 2>&1 >/dev/null" >> /var/spool/cron/nginx
       echo "0 3 * * * /var/www/webroot/ROOT/vendor/drush/drush/drush -r /var/www/webroot/ROOT sql:dump --result-file=/var/www/webroot/backup/db-dump-`date +%d%m%Y%H%M%S`.sql --gzip"
+      composer global require drush/drush:^8.3.1 2>&1 1>>/tmp/install_drupal.log
+      touch /var/www/webroot/go_access_exclude_list.txt
     user: nginx
   secureDb:
   - cmd [sqldb]: |-
@@ -210,9 +215,13 @@ success:
 
     ## STATS
 
-    * <base url>/site_report.html
+    * <base url>/site_report
     * stats / ${globals.STATS_PASS}
 
-    ## MONIT on port 2812
+    ## MONIT on port 2812 (port needs to be opened and restricted by IP)
 
     * admin / ${globals.MONIT_PASS}
+
+    ## Drupal (if opeted to install)
+
+    * admin / ${globals.ADMIN_PASS}
