@@ -96,12 +96,14 @@ onInstall:
   - if ('${settings.install_drupal:false}' == 'true'):
       - cmd [cp]:
         - rm -rf ${WEBROOT}/ROOT
-        - composer global require drush/drush:^8.3.1 2>&1 1>>/tmp/install_drupal.log
-        - composer create-project drupal/legacy-project:9.2.4 ${WEBROOT}/ROOT
-      - cmd [cp]: cd ${WEBROOT}/ROOT && ~/.config/composer/vendor/bin/drush -y si standard --db-url='mysql://drupal:${globals.DB_PASS}@${nodes.sqldb.address}/drupal' --site-name="Drupal" --account-name="admin" --account-pass="${globals.ADMIN_PASS}" --account-mail="${user.email}" 2>&1 1>>/tmp/install_drupal.log
+        - composer create-project drupal/legacy-project:9.2.5 ${WEBROOT}/ROOT
+        - composer require drush/drush:^10.6 2>&1 1>>/tmp/install_drupal.log
+      - cmd [cp]: cd ${WEBROOT}/ROOT && ../vendor/bin/drush -y si standard --db-url='mysql://drupal:${globals.DB_PASS}@${nodes.sqldb.address}/drupal' --site-name="Drupal" --account-name="admin" --account-pass="${globals.ADMIN_PASS}" --account-mail="${user.email}" 2>&1 1>>/tmp/install_drupal.log
       - cmd [cp]:
         - echo "\$settings['trusted_host_patterns'] = array( '^${env.domain}$', '^www\.${env.domain}$', );" >> ${WEBROOT}/ROOT/sites/default/settings.php
         user: root
+  - restartNodes:
+       nodeGroup: cp
 actions:
   SetupAccess:
   - log: Set Access
@@ -180,12 +182,10 @@ actions:
   - cmd [cp]: |-
       echo "0 5 * * * /bin/bash /var/www/webroot/backup/backup_to_s3.sh 2>&1 >/var/www/webroot/backup/backups.log" >> /var/spool/cron/nginx
       echo "*/5 * * * * cat /var/log/nginx/access.log | grep -v -f /var/www/webroot/go_access_exclude_list.txt | goaccess -o /var/www/webroot/site_report/index.html --log-format=COMBINED - 2>&1 >/dev/null" >> /var/spool/cron/nginx
-      composer global require drush/drush:^10.6 2>&1 1>>/tmp/install_drupal.log
       touch /var/www/webroot/go_access_exclude_list.txt
       echo "site_report" >> /var/www/webroot/go_access_exclude_list.txt
       echo "nginx_status" >> /var/www/webroot/go_access_exclude_list.txt
       mkdir /var/www/webroot/site_report/
-      echo 'export PATH=$PATH:/var/lib/nginx/.config/composer/vendor/bin' >> /var/lib/nginx/.bash_profile
       mkdir /var/www/webroot/backup/
       curl https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main/configs/backup_to_s3.sh > /var/www/webroot/backup/backup_to_s3.sh
     user: nginx
@@ -194,8 +194,7 @@ actions:
       sed -i 's/Require all granted/Require all denied/g' /etc/httpd/conf.d/phpMyAdmin-jel.conf
       echo ${globals.NGINX_PASS}| passwd --stdin root &>> /var/log/run.log
     user: root
-  - restartNodes:
-      nodeGroup: cp
+
 success:
   text: |
     ## Database:
