@@ -20,7 +20,7 @@ cd $ROOTSCRIPTPATH
 DATE=`date +%Y-%m-%d_%Hh%Mm`
 DAY=`date +%Y_%m_%d`
 
-/var/www/webroot/vendor/bin/drush -r /var/www/webroot/ROOT sql:dump --extra-dump=--no-tablespaces --result-file=/var/www/webroot/backup/db_backup.sql --gzip
+/var/www/webroot/ROOT/vendor/bin/drush -r /var/www/webroot/ROOT sql:dump --extra-dump="--no-tablespaces --column-statistics=0"  --result-file=/var/www/webroot/backup/db_backup.sql --gzip
 /usr/local/bin/aws s3 cp ${WEBROOT}/backup/db_backup.sql.gz s3://$AWSBUCKET/${HOSTNAME}/${DAY}/
 
 if [ $? == 0 ]; then

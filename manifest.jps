@@ -97,8 +97,9 @@ onInstall:
       - cmd [cp]:
         - rm -rf ${WEBROOT}/ROOT
         - composer create-project drupal/legacy-project:9.2.5 ${WEBROOT}/ROOT
+        - cd ${WEBROOT}/ROOT
         - composer require drush/drush:^10.6 2>&1 1>>/tmp/install_drupal.log
-      - cmd [cp]: cd ${WEBROOT}/ROOT && ../vendor/bin/drush -y si standard --db-url='mysql://drupal:${globals.DB_PASS}@${nodes.sqldb.address}/drupal' --site-name="Drupal" --account-name="admin" --account-pass="${globals.ADMIN_PASS}" --account-mail="${user.email}" 2>&1 1>>/tmp/install_drupal.log
+      - cmd [cp]: cd ${WEBROOT}/ROOT && ./vendor/bin/drush -y si standard --db-url='mysql://drupal:${globals.DB_PASS}@${nodes.sqldb.address}/drupal' --site-name="Drupal" --account-name="admin" --account-pass="${globals.ADMIN_PASS}" --account-mail="${user.email}" 2>&1 1>>/tmp/install_drupal.log
       - cmd [cp]:
         - echo "\$settings['trusted_host_patterns'] = array( '^${env.domain}$', '^www\.${env.domain}$', );" >> ${WEBROOT}/ROOT/sites/default/settings.php
         user: root
