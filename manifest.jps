@@ -25,16 +25,17 @@ settings:
   - caption: "PHP Version"
     type: list
     values:
+        2.4.57-php-8.1.19 : 8.1
         1.18.0-php-7.4.16 : 7.4
     required: true
     name: PHP_VERSION
-    value: 1.18.0-php-7.4.16
+    value: 2.4.57-php-8.1.19
   - caption: Skip Install Let's Encrypt SSL with Auto-Renewal?
     type: checkbox
     name: le_addon
     value: true
     tooltip: "Advanced integration with Let's Encrypt certificate authority that simplifies and automates the process of issuing, configuring and renewing trusted SSL certificates."
-  - caption: Install Clean Drupal 9?
+  - caption: Install Clean Drupal 10?
     type: checkbox
     name: install_drupal
     value: false
@@ -61,7 +62,7 @@ nodes:
     REDIS_VERSION: 6.0.6
     BACKUP_FAIL_FROM: ${settings.BACKUP_EMAIL}
     BACKUP_FAIL_TO: ${settings.BACKUP_EMAIL}
-- nodeType: mysql5
+- nodeType: mysql8
   count: 1
   cloudlets: 8
   displayName: Database
@@ -96,9 +97,9 @@ onInstall:
   - if ('${settings.install_drupal:false}' == 'true'):
       - cmd [cp]:
         - rm -rf ${WEBROOT}/ROOT
-        - composer create-project drupal/legacy-project:9.2.5 ${WEBROOT}/ROOT
+        - composer create-project drupal/recommended-project ${WEBROOT}/ROOT
         - cd ${WEBROOT}/ROOT
-        - composer require drush/drush:^10.6 2>&1 1>>/tmp/install_drupal.log
+        - composer require drush/drush 2>&1 1>>/tmp/install_drupal.log
       - cmd [cp]: cd ${WEBROOT}/ROOT && ./vendor/bin/drush -y si standard --db-url='mysql://drupal:${globals.DB_PASS}@${nodes.sqldb.address}/drupal' --site-name="Drupal" --account-name="admin" --account-pass="${globals.ADMIN_PASS}" --account-mail="${user.email}" 2>&1 1>>/tmp/install_drupal.log
       - cmd [cp]:
         - echo "\$settings['trusted_host_patterns'] = array( '^${env.domain}$', '^www\.${env.domain}$', );" >> ${WEBROOT}/ROOT/sites/default/settings.php
@@ -159,12 +160,6 @@ actions:
   setupCPPackages:
   - log: Setup Packages
   - cmd [cp]: |-
-      wget http://www.rfxn.com/downloads/maldetect-current.tar.gz
-      tar -xzf maldetect-current.tar.gz
-      cd maldetect-1.6.4
-      /bin/bash ./install.sh
-      cd ../
-      rm -rf maldet*
       curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" &>> /var/log/run.log
       unzip awscliv2.zip &>> /var/log/run.log
       ./aws/install &>> /var/log/run.log
