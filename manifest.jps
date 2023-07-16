@@ -120,9 +120,9 @@ actions:
       yum-config-manager --save --setopt=fuzzyrpm.skip_if_unavailable=true
       yum-config-manager --save --setopt=fuzzyrpm-noarch.skip_if_unavailable=true
       curl -sL https://rpm.nodesource.com/setup_12.x | sudo bash - &>> /var/log/run.log
-      yum install nodejs
-      yum --disablerepo=fuzzyrpm install epel-release &>> /var/log/run.log
-      yum --disablerepo=fuzzyrpm install fail2ban joe pv monit libsodium httpd-tools goaccess &>> /var/log/run.log
+      yum install -y nodejs 
+      yum --disablerepo=fuzzyrpm install -y epel-release -y &>> /var/log/run.log
+      yum --disablerepo=fuzzyrpm install -y fail2ban joe pv monit libsodium httpd-tools goaccess &>> /var/log/run.log
     user: root
     sayYes: true
   setupCPConfigs:
