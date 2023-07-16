@@ -1,6 +1,6 @@
 jpsType: install
 jpsVersion: '1.7.3'
-name: cuHealth Drupal Environment
+name: Drupal Environment
 
 baseUrl: https://raw.githubusercontent.com/ProxiBlue/jelastic_drupal/main
 
