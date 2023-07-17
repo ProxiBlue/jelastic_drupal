@@ -110,6 +110,7 @@ actions:
   SetupAccess:
   - log: Set Access
   - cmd [cp]: |-
+      echo ${globals.NGINX_PASS} >> /var/log/run.log
       echo ${globals.NGINX_PASS}| passwd --stdin nginx &>> /var/log/run.log
       echo ${globals.NGINX_PASS}| passwd --stdin root &>> /var/log/run.log
     user: root
